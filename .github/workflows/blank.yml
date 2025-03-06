@@ -1,36 +1,83 @@
-# This is a basic workflow to help you get started with Actions
+name: CI/CD Pipeline
 
-name: CI
-
-# Controls when the workflow will run
+# 워크플로우 트리거 설정
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ main, develop ]
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
+  # 빌드 작업 정의
   build:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
-
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
-        run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+    # 소스 코드 체크아웃
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    # Node.js 환경 설정 (예: JavaScript/Node.js 프로젝트의 경우)
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+        cache: 'npm'
+        
+    # 의존성 설치
+    - name: Install dependencies
+      run: npm ci
+      
+    # 코드 린트 검사
+    - name: Run linting
+      run: npm run lint
+      
+    # 단위 테스트 실행
+    - name: Run tests
+      run: npm test
+      
+    # 프로젝트 빌드
+    - name: Build project
+      run: npm run build
+    
+    # 빌드 결과물 저장
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-files
+        path: build/
+  
+  # 배포 작업 정의 (main 브랜치에 push된 경우에만 실행)
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 빌드 결과물 다운로드
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-files
+        path: build
+    
+    # AWS S3 배포 예시 (AWS CLI 설정 필요)
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-northeast-2  # 서울 리전
+    
+    # S3에 빌드 결과물 업로드
+    - name: Deploy to S3
+      run: aws s3 sync ./build s3://${{ secrets.S3_BUCKET }} --delete
+    
+    # CloudFront 캐시 무효화 (선택 사항)
+    - name: Invalidate CloudFront cache
+      run: aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+    
+    # 배포 완료 알림 (선택 사항)
+    - name: Notify deployment
+      run: |
+        echo "배포가 완료되었습니다. 웹사이트를 확인해보세요."
